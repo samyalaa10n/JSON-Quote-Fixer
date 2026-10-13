@@ -74,8 +74,13 @@ function findEnd(s, start) {
 function tryFix(chunk) {
   try { JSON.parse(chunk); return null; } catch {}          // سليم أصلاً
   if (!chunk.includes('""')) return undefined;
-  const fixed = chunk.replace(/""/g, '"');
-  try { JSON.parse(fixed); return fixed; } catch { return undefined; }
+  // بنفك الـ escape مرة مرة ("" → " ، """" → "" → " ...) لغاية ما يبقى JSON سليم
+  let cur = chunk;
+  for (let n = 0; n < 60 && cur.includes('""'); n++) {
+    cur = cur.replace(/""/g, '"');
+    try { JSON.parse(cur); return cur; } catch {}
+  }
+  return undefined;
 }
 
 function fixText(text) {
