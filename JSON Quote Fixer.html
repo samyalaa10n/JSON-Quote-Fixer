@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>JSON Quote Fixer</title>
+<style>
+:root{--bg:#f6f7f9;--panel:#fff;--ink:#1a1d23;--mute:#6b7280;--line:#d9dde3;--accent:#0f6e56;--accent-ink:#fff;--bad:#b42318;--ok-bg:#e7f5ef;
+box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#14171c;--panel:#1c2027;--ink:#e8eaee;--mute:#9aa3b0;--line:#2e343d;--accent:#3fc9a2;--accent-ink:#06261d;--bad:#ff8a80;--ok-bg:#16322a}}
+:root[data-theme="dark"]{--bg:#14171c;--panel:#1c2027;--ink:#e8eaee;--mute:#9aa3b0;--line:#2e343d;--accent:#3fc9a2;--accent-ink:#06261d;--bad:#ff8a80;--ok-bg:#16322a}
+*{box-sizing:border-box}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.6 system-ui,-apple-system,"Segoe UI",Tahoma,sans-serif}
+main{max-width:1100px;margin:0 auto;padding:24px 16px 40px}
+h1{font-size:1.5rem;margin:0 0 4px}
+p.lead{margin:0 0 20px;color:var(--mute);max-width:70ch}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+@media(max-width:800px){.grid{grid-template-columns:1fr}}
+.box{background:var(--panel);border:1px solid var(--line);border-radius:10px;display:flex;flex-direction:column;min-width:0}
+.bar{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:8px 12px;border-bottom:1px solid var(--line);font-weight:600}
+.bar .btns{display:flex;gap:6px}
+textarea{width:100%;min-height:340px;flex:1;border:0;background:transparent;color:var(--ink);padding:12px;resize:vertical;font:13px/1.55 ui-monospace,Consolas,Menlo,monospace;direction:ltr;text-align:left;outline:none;white-space:pre-wrap;overflow-wrap:anywhere}
+button{font:inherit;font-size:.875rem;border:1px solid var(--line);background:transparent;color:var(--ink);border-radius:6px;padding:5px 12px;cursor:pointer}
+button:hover{border-color:var(--accent)}
+button:focus-visible,textarea:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+button.primary{background:var(--accent);color:var(--accent-ink);border-color:var(--accent);font-weight:600;padding:9px 22px;font-size:1rem}
+.actions{display:flex;align-items:center;gap:14px;margin:16px 0;flex-wrap:wrap}
+#status{padding:4px 12px;border-radius:6px;font-size:.9rem;color:var(--mute)}
+#status.ok{background:var(--ok-bg);color:var(--accent)}
+#status.warn{color:var(--bad)}
+#log{margin-top:16px;font-size:.85rem;color:var(--mute);direction:ltr;text-align:left;font-family:ui-monospace,Consolas,monospace}
+#log div{padding:3px 0;border-bottom:1px dashed var(--line);overflow-wrap:anywhere}
+#log .bad{color:var(--bad)}
+</style>
+</head>
+<body>
+<main>
+<h1>JSON Quote Fixer</h1>
+<p class="lead">الصق النص الكبير كله. الصفحة بتدوّر جواه على أي JSON اتكتبت فيه علامات <code dir="ltr">"</code> مرتين (<code dir="ltr">""</code>) وتصلحه هو بس، وباقي النص بيفضل زي ما هو.</p>
+
+<div class="grid">
+  <section class="box">
+    <div class="bar"><span>INPUT</span><span class="btns"><button id="paste">لصق</button><button id="clear1">مسح</button></span></div>
+    <textarea id="in" spellcheck="false" placeholder="الصق النص هنا..."></textarea>
+  </section>
+  <section class="box">
+    <div class="bar"><span>OUTPUT</span><span class="btns"><button id="copy">نسخ</button><button id="clear2">مسح</button></span></div>
+    <textarea id="out" spellcheck="false" readonly placeholder="النتيجة هتظهر هنا بعد الضغط على تظبيط"></textarea>
+  </section>
+</div>
+
+<div class="actions">
+  <button class="primary" id="go">تظبيط ▶</button>
+  <span id="status"></span>
+</div>
+<div id="log"></div>
+</main>
+
+<script>
+const $ = id => document.getElementById(id);
+
+// يرجع index نهاية الـ block المتوازن اللي بيبدأ عند start، أو -1
+function findEnd(s, start) {
+  const open = s[start], close = open === '{' ? '}' : ']';
+  let depth = 0;
+  for (let i = start; i < s.length; i++) {
+    if (s[i] === open) depth++;
+    else if (s[i] === close && --depth === 0) return i;
+  }
+  return -1;
+}
+
+function tryFix(chunk) {
+  try { JSON.parse(chunk); return null; } catch {}          // سليم أصلاً
+  if (!chunk.includes('""')) return undefined;
+  const fixed = chunk.replace(/""/g, '"');
+  try { JSON.parse(fixed); return fixed; } catch { return undefined; }
+}
+
+function fixText(text) {
+  let out = '', i = 0, fixedCount = 0, failed = [];
+  while (i < text.length) {
+    const ch = text[i];
+    if (ch !== '{' && ch !== '[') { out += ch; i++; continue; }
+    const end = findEnd(text, i);
+    if (end === -1) { out += ch; i++; continue; }
+    const chunk = text.slice(i, end + 1);
+    const r = tryFix(chunk);
+    if (typeof r === 'string') {
+      // علامات ' حوالين الـ object بتفضل زي ما هي
+      i = end + 1;
+      out += r; fixedCount++;
+    } else if (r === null) {            // سليم: نسيبه زي ما هو
+      out += chunk; i = end + 1;
+    } else {                            // مش قابل للإصلاح: ندخل جواه ممكن فيه object أصغر سليم
+      if (chunk.includes('""')) failed.push(chunk);
+      out += ch; i++;
+    }
+  }
+  return { out, fixedCount, failed };
+}
+
+function setStatus(msg, cls) { const s = $('status'); s.textContent = msg; s.className = cls || ''; }
+
+$('go').onclick = () => {
+  const src = $('in').value;
+  if (!src.trim()) { setStatus('الصق نص الأول', 'warn'); return; }
+  const { out, fixedCount, failed } = fixText(src);
+  $('out').value = out;
+  const log = $('log'); log.innerHTML = '';
+  if (fixedCount) setStatus(`اتصلح ${fixedCount} مقطع`, 'ok');
+  else setStatus('مفيش مقاطع محتاجة تظبيط', '');
+  // المقاطع اللي فيها "" ومقدرتش أصلحها (من غير تكرار المتداخل)
+  const unique = failed.filter(f => !failed.some(g => g !== f && g.includes(f) === false && f.includes(g)));
+  if (failed.length && !fixedCount) setStatus('لقيت "" بس مقدرتش أحوّلها لـ JSON سليم', 'warn');
+  unique.slice(0, 10).forEach(f => {
+    const d = document.createElement('div'); d.className = 'bad';
+    d.textContent = 'مقطع مش قابل للإصلاح: ' + (f.length > 160 ? f.slice(0, 160) + '…' : f);
+    log.appendChild(d);
+  });
+};
+
+$('copy').onclick = async () => {
+  try { await navigator.clipboard.writeText($('out').value); setStatus('اتنسخ', 'ok'); }
+  catch { $('out').select(); document.execCommand('copy'); setStatus('اتنسخ', 'ok'); }
+};
+$('paste').onclick = async () => {
+  try { $('in').value = await navigator.clipboard.readText(); } catch { setStatus('اللصق مش متاح، استخدم Ctrl+V', 'warn'); }
+};
+$('clear1').onclick = () => { $('in').value = ''; };
+$('clear2').onclick = () => { $('out').value = ''; $('log').innerHTML = ''; setStatus(''); };
+</script>
+</body>
+</html>
